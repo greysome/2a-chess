@@ -306,11 +306,12 @@ io.on('connection', (socket) => {
     });
 
     socket.on('player move', (room_id, player_id, old_rank, old_file, new_rank, new_file) => {
+	var game = games[room_id];
+
 	// it is not that player's turn
 	if (player_id != games[room_id].cur_player)
 	    return;
 
-	var game = games[room_id];
 	var piece = game.board[old_rank][old_file];
 	games[room_id].board[old_rank][old_file] = '';
 	games[room_id].board[new_rank][new_file] = piece;
@@ -337,7 +338,7 @@ io.on('connection', (socket) => {
 	    if (moves.length != 0) {
 		io.to(room_id).emit('broadcast player turn',
 				    cur_player,
-				    game.usernames[game.cur_player],
+				    game.usernames[cur_player],
 				    moves);
 		games[room_id].cur_player = cur_player;
 
@@ -358,24 +359,20 @@ io.on('connection', (socket) => {
 	    player_id = sockets[socket.id].player_id,
 	    username = sockets[socket.id].username;
 	var game = games[room_id];
+	delete sockets[socket.id];
 
-	if (player_id >= 0) {
+	if (player_id >= 0)
 	    games[room_id].connection_states[player_id] = false;
-	}
-	else {
+	else
 	    games[room_id].num_spectators--;
-	}
 
 	var ret = connected_and_disconnected(room_id);
 	io.to(room_id).emit('broadcast members update',
 			    ret[0], ret[1],
 			    game.num_spectators);
 
-	delete sockets[socket.id];
-
-	if (player_id == game.cur_player) {
+	if (player_id == game.cur_player)
 	    wait_for(room_id, game.cur_player, 30);
-	}
 	console.log('disconnect', room_id, player_id, username, game.connection_states);
     });
 });
