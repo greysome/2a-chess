@@ -1,0 +1,21 @@
+<head>
+  <meta charset="utf-8">
+  <title>2A Chess</title>
+</head>
+
+<body>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+  <script src="js/index.js"></script>
+
+  <label for="room_id">ID:</label><br>
+  <input type="text" id="input_room_id" name="room_id"><br>
+  <p id="txt_room_id_invalid" style="color:red" hidden>Room does not exist.</p>
+  <label for="username">Username:</label><br>
+  <input type="text" id="input_username" name="username">
+  <p id="txt_username_invalid" style="color:red" hidden>Username should be at least 4 characters long!</p>
+  <br>
+  <button id="btn_join_room">Join room</button>
+  <br>
+  <button id="btn_create_room">Create room</button>
+</body>
+</html>

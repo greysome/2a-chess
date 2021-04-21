@@ -1,0 +1,24 @@
+{
+  "name": "2a-chess",
+  "version": "1.0.0",
+  "description": "A 4-player chess variant that can be played using a regular chess set",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "author": "greysome",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.17.1",
+    "socket.io": "^4.0.1"
+  },
+  "devDependencies": {},
+  "keywords": [
+    "chess",
+    "4-player"
+  ],
+  "engines": {
+    "node": "15.x"
+  }
+}
