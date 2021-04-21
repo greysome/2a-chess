@@ -415,6 +415,6 @@ app.get('/play', (req, res) => {
     res.sendFile(path.join(__dirname, 'play.html'));
 });
 
-server.listen(3000, () => {
-    console.log('listening on *:3000');
+server.listen(process.env.PORT || 3000, () => {
+    console.log('listening on port');
 });
