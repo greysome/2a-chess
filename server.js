@@ -133,13 +133,31 @@ function legal_moves(player_id, board) {
 	var color = piece.charAt(0), type = piece.charAt(1);
 
 	if (type == 'p') {
-	    // TODO: change
-	    moves = moves.concat(
-		multiple_ray_moves(board, rank, file,
-				   [[1,0],[0,1],[-1,0],[0,-1],
-				    [1,1],[-1,1],[1,-1],[-1,-1]],
-				   [1,1,1,1,1,1,1,1])
-	    );
+	    var normal_moves = (color == 'w' ? [[1,1],[-1,-1]] : [[1,-1],[-1,1]]);
+	    normal_moves.forEach((d) => {
+		var d_rank = d[0], d_file = d[1];
+		if (rank+d_rank < 0 || rank+d_rank >= 8 ||
+		    file+d_file < 0 || file+d_file >= 8) {
+		    return;
+		}
+
+		var other_piece = board[rank+d_rank][file+d_file];
+		if (other_piece == '')
+		    moves.push([rank, file, rank+d_rank, file+d_file]);
+	    });
+
+	    // Capture moves
+	    [[1,0],[0,1],[-1,0],[0,-1]].forEach((d) => {
+		var d_rank = d[0], d_file = d[1];
+		if (rank+d_rank < 0 || rank+d_rank >= 8 ||
+		    file+d_file < 0 || file+d_file >= 8) {
+		    return;
+		}
+
+		var other_piece = board[rank+d_rank][file+d_file];
+		if (other_piece != '' && color != other_piece.charAt(0))
+		    moves.push([rank, file, rank+d_rank, file+d_file]);
+	    });
 	}
 	else if (type == 'n') {
 	    moves = moves.concat(
@@ -198,7 +216,6 @@ function connected_and_disconnected(room_id) {
 
 function wait_for(room_id, player_id, secs_left) {
     var game = games[room_id];
-    console.log(room_id, player_id, secs_left);
     if (games[room_id].connection_states[player_id]) {
 	return;
     }
