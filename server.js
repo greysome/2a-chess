@@ -260,7 +260,7 @@ io.on('connection', (socket) => {
 		// room has enough players; start game
 		if (game.num_players == 4) {
 		    io.to(room_id).emit('broadcast player turn',
-					game.cur_player,
+					0,
 					game.usernames[game.cur_player],
 					legal_moves(game.cur_player, game.board));
 		}
@@ -373,6 +373,17 @@ io.on('connection', (socket) => {
 
 	if (player_id == game.cur_player)
 	    wait_for(room_id, game.cur_player, 30);
+	else if (game.cur_player == -1) {
+	    // delete game if all disconnected even before game starts
+	    var all_disconnected = true;
+	    for (var i = 0; i < game.num_players; i++)
+		if (game.connection_states[i])
+		    all_disconnected = false;
+
+	    if (all_disconnected)
+		delete games[room_id];
+	}
+
 	console.log('disconnect', room_id, player_id, username, game.connection_states);
     });
 });
@@ -400,7 +411,7 @@ app.get('/create_room', (req, res) => {
 		      usernames: [],
 		      num_spectators: 0,
 		      board: start_board,
-		      cur_player: 0,
+		      cur_player: -1,
 		      connection_states: []};
 });
 
