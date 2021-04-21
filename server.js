@@ -205,7 +205,7 @@ function wait_for(room_id, player_id, secs_left) {
 
     if (secs_left == 0) {
 	io.to(room_id).emit('broadcast stop game');
-	delete games[room_id];
+	remove_room(room_id);
 	return;
     }
 
@@ -213,6 +213,12 @@ function wait_for(room_id, player_id, secs_left) {
 			game.usernames[player_id],
 			secs_left);
     setTimeout(wait_for, 1000, room_id, player_id, secs_left-1);
+}
+
+function remove_room(room_id) {
+    delete games[room_id];
+    var idx = room_ids.indexOf(room_id);
+    room_ids.splice(idx, 1);
 }
 
 // socket.io
@@ -259,8 +265,9 @@ io.on('connection', (socket) => {
 
 		// room has enough players; start game
 		if (game.num_players == 4) {
+		    games[room_id].cur_player = 0;
 		    io.to(room_id).emit('broadcast player turn',
-					0,
+					game.cur_player,
 					game.usernames[game.cur_player],
 					legal_moves(game.cur_player, game.board));
 		}
@@ -320,12 +327,12 @@ io.on('connection', (socket) => {
 	// check win condition
 	if (!any_kings_left(game.board, 0)) {
 	    io.to(room_id).emit('broadcast black win');
-	    delete games[room_id];
+	    remove_room(room_id);
 	    return;
 	}
 	else if (!any_kings_left(game.board, 1)) {
 	    io.to(room_id).emit('broadcast white win');
-	    delete games[room_id];
+	    remove_room(room_id);
 	    return;
 	}
 
@@ -351,15 +358,20 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-	// player with that socket connection hasn't joined room yet
+	// player with that socket connection is not in room
 	if (!(socket.id in sockets))
 	    return;
 
 	var room_id = sockets[socket.id].room_id,
 	    player_id = sockets[socket.id].player_id,
 	    username = sockets[socket.id].username;
-	var game = games[room_id];
 	delete sockets[socket.id];
+
+	// room no longer exists
+	if (!room_ids.includes(room_id))
+	    return;
+
+	var game = games[room_id];
 
 	if (player_id >= 0)
 	    games[room_id].connection_states[player_id] = false;
@@ -380,8 +392,10 @@ io.on('connection', (socket) => {
 		if (game.connection_states[i])
 		    all_disconnected = false;
 
+	    console.log('game not started', all_disconnected);
+
 	    if (all_disconnected)
-		delete games[room_id];
+		remove_room(room_id);
 	}
 
 	console.log('disconnect', room_id, player_id, username, game.connection_states);

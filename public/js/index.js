@@ -1,4 +1,4 @@
-$(document).ready(function() {
+$(document).ready(() => {
     $('#btn_create_room').click(() => {
 	var username = $('#input_username').val();
 	// TODO: sanitiser username
@@ -28,13 +28,11 @@ $(document).ready(function() {
 	}
 
 	$.get('/room_exists', {id: room_id}, (exists) => {
-	    if (exists) {
+	    if (exists)
 		window.location.replace(window.location.origin + '/play?id=' + room_id + '&username=' + username);
-	    }
-	    else {
+	    else
 		$('#txt_room_id_invalid').show();
 		return;
-	    }
 	});
     });
 });
