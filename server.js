@@ -8,7 +8,7 @@ const utility = require('./public/js/utility');
 const engine = require('./public/js/engine');
 
 var room_ids = [];
-var games = Object(); // {id: state}
+var games = Object(); // {game id: state}
 var start_board = [
     ['wr', 'wn', 'wp', '', '', 'bp', 'bk', 'br'],
     ['wb', 'wk', 'wp', '', '', 'bp', 'bb', 'bn'],
@@ -57,6 +57,43 @@ function remove_room(room_id) {
     room_ids.splice(idx, 1);
 }
 
+function join_as_spectator(socket, room_id, username) {
+    var game = games[room_id];
+    sockets[socket.id] = {room_id: room_id,
+			  player_id: -1,
+			  username: username};
+    games[room_id].num_spectators++;
+
+    socket.emit('joined room spectator', game.board);
+    var ret = connected_and_disconnected(room_id);
+    io.to(room_id).emit('broadcast members update',
+			ret[0], ret[1], game.num_spectators);
+}
+
+function join_as_player(socket, room_id, username) {
+    var game = games[room_id];
+    player_id = games[room_id].num_players++;
+    sockets[socket.id] = {room_id: room_id,
+			  player_id: player_id,
+			  username: username};
+    games[room_id].usernames.push(username);
+    games[room_id].connection_states.push(true);
+
+    socket.emit('joined room player', player_id, username, game.board);
+    var ret = connected_and_disconnected(room_id);
+    io.to(room_id).emit('broadcast members update',
+			ret[0], ret[1], game.num_spectators);
+}
+
+function start_game(io, room_id) {
+    var game = games[room_id];
+    games[room_id].cur_player = 0;
+    io.to(room_id).emit('broadcast player turn',
+			game.cur_player,
+			game.usernames[game.cur_player],
+			engine.legal_moves(game.cur_player, game.board));
+}
+
 io.on('connection', (socket) => {
     console.log('connect', socket.id);
 
@@ -65,50 +102,17 @@ io.on('connection', (socket) => {
 	    socket.emit('room not created');
 	}
 	else {
-	    var game = games[room_id];
 	    socket.join(room_id); // join socket.io room
-	    if (game.num_players >= 4) {
-		sockets[socket.id] = {room_id: room_id,
-				      player_id: -1,
-				      username: username};
-		games[room_id].num_spectators++;
 
-		// room already has enough players; join as spectators
-		socket.emit('joined room spectator', games[room_id].board);
-		var ret = connected_and_disconnected(room_id);
-		io.to(room_id).emit('broadcast members update',
-				    ret[0], ret[1],
-				    game.num_spectators);
-	    }
+	    var game = games[room_id];
+	    if (game.num_players >= 4)
+		join_as_spectator(socket, room_id, username);
 	    else {
-		// join the room as a player
-		player_id = games[room_id].num_players++;
-		sockets[socket.id] = {room_id: room_id,
-				      player_id: player_id,
-				      username: username};
-		games[room_id].usernames.push(username);
-		games[room_id].connection_states.push(true);
-		socket.emit('joined room player',
-			    player_id,
-			    username,
-			    game.board);
-
-		ret = connected_and_disconnected(room_id);
-		io.to(room_id).emit('broadcast members update',
-				    ret[0], ret[1],
-				    game.num_spectators);
-
-		// room has enough players; start game
-		if (game.num_players == 4) {
-		    games[room_id].cur_player = 0;
-		    io.to(room_id).emit('broadcast player turn',
-					game.cur_player,
-					game.usernames[game.cur_player],
-					engine.legal_moves(game.cur_player, game.board));
-		}
+		join_as_player(socket, room_id, username);
+		if (game.num_players == 4)
+		    start_game(io, room_id);
 	    }
 	}
-
     });
 
     socket.on('rejoin room', (room_id, player_id) => {
