@@ -1,7 +1,3 @@
-/*
-  The code wrapping the export functions allows them to be used in
-  both server-side node.js and client-side Javascript
-*/
 ((exports) => {
     exports.randint = (min, max) => {
 	return Math.round(Math.random()*(max-min) + min);

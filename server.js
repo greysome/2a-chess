@@ -7,7 +7,6 @@ const path = require('path');
 const utility = require('./public/js/utility');
 const engine = require('./public/js/engine');
 
-var room_ids = [];
 var games = Object(); // {game id: state}
 var start_board = [
     ['wr', 'wn', 'wp', '', '', 'bp', 'bk', 'br'],
@@ -21,7 +20,11 @@ var start_board = [
 ];
 var sockets = Object(); // {socket id: {room_id: _, player_id: _, username: _}}}
 
-function connected_and_disconnected(room_id) {
+function room_ids() {
+    return Object.keys(games);
+}
+
+function list_players_by_status(room_id) {
     var connected = [], disconnected = [];
     var game = games[room_id];
     for (var i = 0; i < game.num_players; i++) {
@@ -30,31 +33,28 @@ function connected_and_disconnected(room_id) {
 	else
 	    disconnected.push(game.usernames[i]);
     }
-    return [connected, disconnected];
+    return [connected, disconnected, game.num_spectators];
 }
 
-function wait_for(room_id, player_id, secs_left) {
+/*
+  End the game immediately if `player_id` is not connected after
+  `secs_left` seconds.
+*/
+function wait_for_disconnected_player(room_id, player_id, secs_left) {
     var game = games[room_id];
-    if (games[room_id].connection_states[player_id]) {
+    if (games[room_id].connection_states[player_id])
 	return;
-    }
 
     if (secs_left == 0) {
 	io.to(room_id).emit('broadcast stop game');
-	remove_room(room_id);
+	delete games[room_id];
 	return;
     }
 
-    io.to(room_id).emit('broadcast wait for player to reconnect',
+    io.to(room_id).emit('broadcast wait for disconnected player',
 			game.usernames[player_id],
 			secs_left);
-    setTimeout(wait_for, 1000, room_id, player_id, secs_left-1);
-}
-
-function remove_room(room_id) {
-    delete games[room_id];
-    var idx = room_ids.indexOf(room_id);
-    room_ids.splice(idx, 1);
+    setTimeout(wait_for_disconnected_player, 1000, room_id, player_id, secs_left-1);
 }
 
 function join_as_spectator(socket, room_id, username) {
@@ -65,24 +65,23 @@ function join_as_spectator(socket, room_id, username) {
     games[room_id].num_spectators++;
 
     socket.emit('joined room spectator', game.board);
-    var ret = connected_and_disconnected(room_id);
+    var ret = list_players_by_status(room_id);
     io.to(room_id).emit('broadcast members update',
-			ret[0], ret[1], game.num_spectators);
+			ret[0], ret[1], ret[2]);
 }
 
-function join_as_player(socket, room_id, username) {
+function join_as_player(socket, room_id, player_id, username) {
     var game = games[room_id];
-    player_id = games[room_id].num_players++;
     sockets[socket.id] = {room_id: room_id,
 			  player_id: player_id,
 			  username: username};
-    games[room_id].usernames.push(username);
-    games[room_id].connection_states.push(true);
+    games[room_id].usernames[player_id] = username;
+    games[room_id].connection_states[player_id] = true;
 
     socket.emit('joined room player', player_id, username, game.board);
-    var ret = connected_and_disconnected(room_id);
+    var ret = list_players_by_status(room_id);
     io.to(room_id).emit('broadcast members update',
-			ret[0], ret[1], game.num_spectators);
+			ret[0], ret[1], ret[2]);
 }
 
 function start_game(io, room_id) {
@@ -98,9 +97,8 @@ io.on('connection', (socket) => {
     console.log('connect', socket.id);
 
     socket.on('join room', (room_id, username) => {
-	if (!room_ids.includes(room_id)) {
+	if (!room_ids().includes(room_id))
 	    socket.emit('room not created');
-	}
 	else {
 	    socket.join(room_id); // join socket.io room
 
@@ -108,7 +106,9 @@ io.on('connection', (socket) => {
 	    if (game.num_players >= 4)
 		join_as_spectator(socket, room_id, username);
 	    else {
-		join_as_player(socket, room_id, username);
+		var game = games[room_id];
+		player_id = games[room_id].num_players++;
+		join_as_player(socket, room_id, player_id, username);
 		if (game.num_players == 4)
 		    start_game(io, room_id);
 	    }
@@ -119,35 +119,29 @@ io.on('connection', (socket) => {
 	var game = games[room_id];
 	socket.join(room_id);
 
-	if (player_id >= 0) {
-	    // check if an existing socket already has the same
-	    // room_id and player_id
-	    for (var socket_id in sockets) {
-		if (sockets[socket_id].room_id == room_id &&
-		    sockets[socket_id].player_id == player_id) {
-		    socket.emit('not rejoining');
-		    console.log('not rejoining', room_id, player_id, games[room_id].connection_states, sockets);
-		    return;
-		}
+	// check if an existing socket is already in the same game
+	for (var socket_id in sockets) {
+	    if (sockets[socket_id].room_id == room_id &&
+		sockets[socket_id].player_id == player_id) {
+		socket.emit('not rejoining');
+		console.log('not rejoining', room_id, player_id, games[room_id].connection_states, sockets);
+		return;
 	    }
-
-	    sockets[socket.id] = {room_id: room_id, player_id: player_id};
-	    games[room_id].connection_states[player_id] = true;
-	    socket.emit('joined room player',
-			player_id,
-			game.usernames[player_id],
-			game.board);
-	    var ret = connected_and_disconnected(room_id);
-	    io.to(room_id).emit('broadcast members update',
-				ret[0], ret[1],
-				game.num_spectators);
-	    io.to(room_id).emit('broadcast player turn',
-				game.cur_player,
-				game.usernames[game.cur_player],
-				engine.legal_moves(game.cur_player, game.board));
 	}
-	else
+
+	if (player_id >= 0) {
+	    join_as_player(socket, room_id, player_id, game.usernames[player_id]);
+	    socket.emit('broadcast player turn',
+			game.cur_player,
+			game.usernames[game.cur_player],
+			engine.legal_moves(game.cur_player, game.board));
+	}
+	else {
+	    // TODO: allow rejoining spectators to set usernames
+	    join_as_spectator(socket, room_id, 'spectator');
 	    socket.emit('joined room spectator', game.board);
+	}
+
 	console.log('rejoining', room_id, player_id, game.connection_states, sockets);
     });
 
@@ -166,31 +160,31 @@ io.on('connection', (socket) => {
 	// check win condition
 	if (engine.lost_yet(game.board, 0)) {
 	    io.to(room_id).emit('broadcast black win');
-	    remove_room(room_id);
+	    delete games[room_id];
 	    return;
 	}
 	else if (engine.lost_yet(game.board, 1)) {
 	    io.to(room_id).emit('broadcast white win');
-	    remove_room(room_id);
+	    delete games[room_id];
 	    return;
 	}
 
 	// move on to next player
-	var cur_player = player_id;
+	var next_player = player_id;
 	while (true) {
-	    cur_player = (cur_player+1) % 4;
+	    next_player = (next_player+1) % 4;
 	    // find the next player who is not in stalemate
-	    var moves = engine.legal_moves(cur_player, game.board);
+	    var moves = engine.legal_moves(next_player, game.board);
 	    if (moves.length != 0) {
 		io.to(room_id).emit('broadcast player turn',
-				    cur_player,
-				    game.usernames[cur_player],
+				    next_player,
+				    game.usernames[next_player],
 				    moves);
-		games[room_id].cur_player = cur_player;
+		games[room_id].cur_player = next_player;
 
-		if (!game.connection_states[cur_player]) {
-		    wait_for(room_id, cur_player, 30);
-		}
+		if (!game.connection_states[next_player])
+		    wait_for_disconnected_player(room_id, next_player, 30);
+
 		break;
 	    }
 	}
@@ -207,9 +201,10 @@ io.on('connection', (socket) => {
 	delete sockets[socket.id];
 
 	// room no longer exists
-	if (!room_ids.includes(room_id))
+	if (!room_ids().includes(room_id))
 	    return;
 
+	// update game state
 	var game = games[room_id];
 
 	if (player_id >= 0)
@@ -217,24 +212,22 @@ io.on('connection', (socket) => {
 	else
 	    games[room_id].num_spectators--;
 
-	var ret = connected_and_disconnected(room_id);
+	// broadcast updates
+	var ret = list_players_by_status(room_id);
 	io.to(room_id).emit('broadcast members update',
-			    ret[0], ret[1],
-			    game.num_spectators);
+			    ret[0], ret[1], ret[2]);
 
-	if (player_id == game.cur_player)
-	    wait_for(room_id, game.cur_player, 30);
+	if (game.cur_player == player_id)
+	    wait_for_disconnected_player(room_id, game.cur_player, 30);
 	else if (game.cur_player == -1) {
-	    // delete game if all disconnected even before game starts
+	    // game hasn't started yet; if all disconnected then delete game
 	    var all_disconnected = true;
 	    for (var i = 0; i < game.num_players; i++)
 		if (game.connection_states[i])
 		    all_disconnected = false;
 
-	    console.log('game not started', all_disconnected);
-
 	    if (all_disconnected)
-		remove_room(room_id);
+		delete games[room_id];
 	}
 
 	console.log('disconnect', room_id, player_id, username, game.connection_states);
@@ -251,21 +244,20 @@ app.get('/create_room', (req, res) => {
     var room_id;
     while (true) {
 	room_id = utility.randint(100, 1000).toString();
-	if (!room_ids.includes(room_id))
+	if (!room_ids().includes(room_id))
 	    break;
     }
-    room_ids.push(room_id);
     res.send(room_id);
     games[room_id] = {num_players: 0,
-		      usernames: [],
+		      usernames: ['', '', '', ''],
 		      num_spectators: 0,
 		      board: start_board,
 		      cur_player: -1,
-		      connection_states: []};
+		      connection_states: [false, false, false, false]};
 });
 
 app.get('/room_exists', (req, res) => {
-    res.send(room_ids.includes(req.query.id));
+    res.send(room_ids().includes(req.query.id));
 });
 
 app.get('/play', (req, res) => {

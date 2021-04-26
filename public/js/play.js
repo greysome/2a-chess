@@ -114,7 +114,7 @@ $(document).ready(() => {
 	draw_board(player_id, new_board);
     });
 
-    socket.on('broadcast wait for player to reconnect', (username, secs_left) => {
+    socket.on('broadcast wait for disconnected player', (username, secs_left) => {
 	$('#txt_gamestate').text(username + ' disconnected, waiting ' + secs_left.toString() + ' more seconds');
     });
 
