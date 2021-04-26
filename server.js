@@ -4,6 +4,8 @@ const http = require('http');
 const server = http.createServer(app);
 const io = require('socket.io')(server);
 const path = require('path');
+const utility = require('./public/js/utility');
+const engine = require('./public/js/engine');
 
 var room_ids = [];
 var games = Object(); // {id: state}
@@ -18,189 +20,6 @@ var start_board = [
     ['br', 'bn', 'bp', '', '', 'wp', 'wk', 'wr']
 ];
 var sockets = Object(); // {socket id: {room_id: _, player_id: _, username: _}}}
-
-// Generating legal moves
-function transform(player_id, rank, file) {
-    var centered_rank = rank-3.5, centered_file = file-3.5;
-    for (var i = 0; i < player_id; i++) {
-	var tmp = centered_rank;
-	centered_rank = centered_file;
-	centered_file = -tmp;
-    }
-    return [centered_rank+3.5, centered_file+3.5];
-}
-
-function inv_transform(player_id, rank, file) {
-    return transform(4-player_id, rank, file);
-}
-
-/*
-  return array of [rank, file], where the piece at (rank, file) can
-  be moved by player
-*/
-function movable_pieces(player_id, board) {
-    var color = player_id % 2;
-    var squares = [];
-
-    /*
-      for first players, iterate through array of [rank, file] where rank+file <= 8.
-      for other players, iterate through array of [rank, file] which
-      is rotated by a multiple of 90 degrees.
-    */
-    for (var rank = 0; rank < 8; rank++) {
-	for (var file = 0; file < 8-rank; file++) {
-	    var inv_coords = inv_transform(player_id, rank, file);
-	    var _rank = inv_coords[0], _file = inv_coords[1];
-	    var piece = board[_rank][_file];
-
-	    // square is empty
-	    if (piece == '')
-		continue;
-
-	    // piece is of the wrong color
-	    if ((color == 0 && piece.charAt(0) == 'b') ||
-		(color == 1 && piece.charAt(0) == 'w'))
-		continue;
-
-	    squares.push([_rank, _file]);
-	}
-    }
-
-    return squares;
-}
-
-/*
-  return array of legal moves [old_rank, old_file, new_rank, new_file]
-  along the ray (rank + i*d_rank, rank + i*d_file), where
-  1 <= i <= max_length
-*/
-function ray_moves(board, rank, file, d_rank, d_file, max_length) {
-    var piece = board[rank][file];
-    var color = piece.charAt(0);
-    var new_square;
-    var moves = [];
-
-    for (var i = 1; i <= max_length; i++) {
-	var new_rank = rank + i*d_rank, new_file = file + i*d_file;
-	if (new_rank < 0 || new_rank >= 8 || new_file < 0 || new_file >= 8) {
-	    break;
-	}
-
-	var new_piece = board[new_rank][new_file];
-	if (new_piece == '') {
-	    // empty square
-	    moves.push([rank, file, new_rank, new_file]);
-	    continue;
-	}
-	else if (piece.charAt(0) == new_piece.charAt(0)) {
-	    // blocked by same color piece
-	    break;
-	}
-	else if (piece.charAt(0) != new_piece.charAt(0)) {
-	    moves.push([rank, file, new_rank, new_file]);
-	    break;
-	}
-    }
-
-    return moves;
-}
-
-/*
-  like `ray_moves()`, but checks legal moves along multiple
-  rays. `d_rankfiles` is an array of [d_rank, d_file] and
-  `max_lengths` is an array of max_length.
-*/
-function multiple_ray_moves(board, rank, file, d_rankfiles, max_lengths) {
-    var moves = [];
-    for (var i = 0; i < d_rankfiles.length; i++) {
-	var d_rank = d_rankfiles[i][0],
-	    d_file = d_rankfiles[i][1];
-	var max_length = max_lengths[i];
-	moves = moves.concat(ray_moves(board, rank, file, d_rank, d_file, max_length));
-    }
-    return moves;
-}
-
-/*
-  return array of [old_rank, old_file, new_rank, new_file], where
-  piece at (old_rank, old_file) can be moved to (new_rank, new_file)
-*/
-function legal_moves(player_id, board) {
-    var moves = [];
-    movable_pieces(player_id, board).forEach((coords) => {
-	var rank = coords[0], file = coords[1];
-	var piece = board[rank][file];
-	var color = piece.charAt(0), type = piece.charAt(1);
-
-	if (type == 'p') {
-	    var normal_moves = (color == 'w' ? [[1,1],[-1,-1]] : [[1,-1],[-1,1]]);
-	    normal_moves.forEach((d) => {
-		var d_rank = d[0], d_file = d[1];
-		if (rank+d_rank < 0 || rank+d_rank >= 8 ||
-		    file+d_file < 0 || file+d_file >= 8) {
-		    return;
-		}
-
-		var other_piece = board[rank+d_rank][file+d_file];
-		if (other_piece == '')
-		    moves.push([rank, file, rank+d_rank, file+d_file]);
-	    });
-
-	    // Capture moves
-	    [[1,0],[0,1],[-1,0],[0,-1]].forEach((d) => {
-		var d_rank = d[0], d_file = d[1];
-		if (rank+d_rank < 0 || rank+d_rank >= 8 ||
-		    file+d_file < 0 || file+d_file >= 8) {
-		    return;
-		}
-
-		var other_piece = board[rank+d_rank][file+d_file];
-		if (other_piece != '' && color != other_piece.charAt(0))
-		    moves.push([rank, file, rank+d_rank, file+d_file]);
-	    });
-	}
-	else if (type == 'n') {
-	    moves = moves.concat(
-		multiple_ray_moves(board, rank, file,
-				   [[1,2],[-1,2],[1,-2],[-1,-2],
-				    [2,1],[-2,1],[2,-1],[-2,-1]],
-				   [1,1,1,1,1,1,1,1])
-	    );
-	}
-	else if (type == 'b') {
-	    moves = moves.concat(
-		multiple_ray_moves(board, rank, file,
-				   [[1,1],[-1,1],[1,-1],[-1,-1]],
-				   [7,7,7,7])
-	    );
-	}
-	else if (type == 'r') {
-	    moves = moves.concat(
-		multiple_ray_moves(board, rank, file,
-				   [[1,0],[0,1],[-1,0],[0,-1]],
-				   [7,7,7,7])
-	    );
-	}
-	else if (type == 'k') {
-	    moves = moves.concat(
-		multiple_ray_moves(board, rank, file,
-				   [[1,0],[0,1],[-1,0],[0,-1],
-				    [1,1],[-1,1],[1,-1],[-1,-1]],
-				   [1,1,1,1,1,1,1,1])
-	    );
-	}
-    });
-
-    return moves;
-}
-
-function any_kings_left(board, color) {
-    // 0 = white, 1 = black
-    if (color == 0)
-	return board.flat().includes('wk');
-    else if (color == 1)
-	return board.flat().includes('bk');
-}
 
 function connected_and_disconnected(room_id) {
     var connected = [], disconnected = [];
@@ -238,7 +57,6 @@ function remove_room(room_id) {
     room_ids.splice(idx, 1);
 }
 
-// socket.io
 io.on('connection', (socket) => {
     console.log('connect', socket.id);
 
@@ -286,7 +104,7 @@ io.on('connection', (socket) => {
 		    io.to(room_id).emit('broadcast player turn',
 					game.cur_player,
 					game.usernames[game.cur_player],
-					legal_moves(game.cur_player, game.board));
+					engine.legal_moves(game.cur_player, game.board));
 		}
 	    }
 	}
@@ -322,7 +140,7 @@ io.on('connection', (socket) => {
 	    io.to(room_id).emit('broadcast player turn',
 				game.cur_player,
 				game.usernames[game.cur_player],
-				legal_moves(game.cur_player, game.board));
+				engine.legal_moves(game.cur_player, game.board));
 	}
 	else
 	    socket.emit('joined room spectator', game.board);
@@ -342,12 +160,12 @@ io.on('connection', (socket) => {
 	io.to(room_id).emit('broadcast player move', game.board);
 
 	// check win condition
-	if (!any_kings_left(game.board, 0)) {
+	if (engine.lost_yet(game.board, 0)) {
 	    io.to(room_id).emit('broadcast black win');
 	    remove_room(room_id);
 	    return;
 	}
-	else if (!any_kings_left(game.board, 1)) {
+	else if (engine.lost_yet(game.board, 1)) {
 	    io.to(room_id).emit('broadcast white win');
 	    remove_room(room_id);
 	    return;
@@ -358,7 +176,7 @@ io.on('connection', (socket) => {
 	while (true) {
 	    cur_player = (cur_player+1) % 4;
 	    // find the next player who is not in stalemate
-	    var moves = legal_moves(cur_player, game.board);
+	    var moves = engine.legal_moves(cur_player, game.board);
 	    if (moves.length != 0) {
 		io.to(room_id).emit('broadcast player turn',
 				    cur_player,
@@ -425,14 +243,10 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-function randint(min, max) {
-    return Math.round(Math.random()*(max-min) + min);
-}
-
 app.get('/create_room', (req, res) => {
     var room_id;
     while (true) {
-	room_id = randint(100, 1000).toString();
+	room_id = utility.randint(100, 1000).toString();
 	if (!room_ids.includes(room_id))
 	    break;
     }

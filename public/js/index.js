@@ -32,7 +32,6 @@ $(document).ready(() => {
 		window.location.replace(window.location.origin + '/play?id=' + room_id + '&username=' + username);
 	    else
 		$('#txt_room_id_invalid').show();
-		return;
 	});
     });
 });

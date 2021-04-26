@@ -7,7 +7,7 @@ $(document).ready(() => {
 
     var light_col = '#F0D9B5', dark_col = '#BF804D',
 	highlight_col = '#DDDDDD', move_indicator_col = '#41b075';
-    var cur_highlight = null; // currently highlighted square
+    var cur_highlight_square = null;
 
     // Game state
     var piece_images = new Object(); // to be loaded dynamically
@@ -134,29 +134,6 @@ $(document).ready(() => {
 	legal_moves = [];
     });
 
-    /*
-    a version of `Array.includes()` that works when the parameter is an
-    array
-    */
-    function array_includes(src, array) {
-	for (var i = 0; i < src.length; i++) {
-	    var a = src[i];
-
-	    if (array.length != a.length)
-		continue;
-
-	    var arrays_eq = true;
-	    for (var j = 0; j < a.length; j++)
-		if (array[j] != a[j])
-		    arrays_eq = false;
-
-	    if (arrays_eq)
-		return true;
-	}
-
-	return false;
-    }
-
     canvas.addEventListener('click', event => {
 	if (!is_my_turn)
 	    return;
@@ -170,101 +147,65 @@ $(document).ready(() => {
 	var displacement = [x - coords[0], y - coords[1]];
 
 	// project onto vectors representing movement by one file/rank
-	var rank = Math.round(component(displacement, [-square_size, -square_size]));
-	var file = Math.round(component(displacement, [square_size, -square_size]));
+	var lrank = Math.round(utility.component(displacement, [-square_size, -square_size]));
+	var lfile = Math.round(utility.component(displacement, [square_size, -square_size]));
 
-	/* get actual rank/file of piece on board, based on the rank/file
-	* selected on the board from the player's perspective */
-	var coords = inv_transform(player_id, rank, file);
-	rank = coords[0];
-	file = coords[1];
+	var grank, gfile;
+	[grank, gfile] = utility.local_to_global_coords(player_id, lrank, lfile);
 
-	if (rank < 0 || rank >= 8 || file < 0 || file >= 8)
+	if (grank < 0 || grank >= 8 || gfile < 0 || gfile >= 8)
 	    return; // clicked outside of board
 
-	if (cur_highlight == null && board[rank][file] == '')
+	if (cur_highlight_square == null && board[grank][gfile] == '')
 	    return; // no piece to highlight
 
-	if (cur_highlight == null) {
-	    highlight_square(player_id, rank, file);
-	    cur_highlight = [rank, file];
+	if (cur_highlight_square == null) {
+	    highlight_square(player_id, grank, gfile);
+	    cur_highlight_square = [grank, gfile];
 
 	    legal_moves.forEach((move) => {
-		var old_rank = move[0], old_file = move[1],
-		    new_rank = move[2], new_file = move[3];
-		if (rank == old_rank && file == old_file)
-		    draw_move_indicator(player_id, new_rank, new_file);
+		var old_grank, old_gfile, new_grank, new_gfile;
+		[old_grank, old_gfile, new_grank, new_gfile] = move;
+		if (grank == old_grank && gfile == old_gfile)
+		    draw_move_indicator(player_id, new_grank, new_gfile);
 	    });
 	}
 	else {
-	    var old_rank = cur_highlight[0], old_file = cur_highlight[1];
-	    console.log(old_rank, old_file, rank, file);
-	    if (rank == old_rank && file == old_file) {
+	    var old_grank = cur_highlight_square[0], old_gfile = cur_highlight_square[1];
+	    if (grank == old_grank && gfile == old_gfile) {
 		// clear all highlights and legal move indicators
 		draw_board(player_id, board);
-		cur_highlight = null;
+		cur_highlight_square = null;
 	    }
-	    else if (array_includes(legal_moves, [old_rank, old_file, rank, file])) {
-		socket.emit('player move', room_id, player_id, old_rank, old_file, rank, file);
+	    else if (utility.array_includes(legal_moves, [old_grank, old_gfile, grank, gfile])) {
+		socket.emit('player move', room_id, player_id, old_grank, old_gfile, grank, gfile);
 		draw_board(player_id, board);
-		cur_highlight = null;
+		cur_highlight_square = null;
 	    }
 	}
     });
 
-    /*
-    given an orthogonal basis {w1, ..., wn}, `component(v, wi)`
-    returns the component of v wrt wi
-    */
-    function component(v, w) {
-	return (v[0]*w[0] + v[1]*w[1]) / (w[0]**2 + w[1]**2);
-    }
-
-    /*
-    given the actual rank/file of the piece in the board, return the
-    rank/file used to render the piece on the canvas, based on the
-    player's perspective
-    */
-    function transform(player_id, rank, file) {
-	var centered_rank = rank-3.5, centered_file = file-3.5;
-	for (var i = 0; i < player_id; i++) {
-	    var tmp = centered_rank;
-	    centered_rank = centered_file;
-	    centered_file = -tmp;
-	}
-	return [centered_rank+3.5, centered_file+3.5];
-    }
-
-    function inv_transform(player_id, rank, file) {
-	return transform(4-player_id, rank, file);
-    }
-
-    /*
-    in the following functions, the actual rank/file of the piece is
-    passed in, rather than the rank/file used for rendering
-    */
-    function get_square_coord(player_id, rank, file) {
-	var coords = transform(player_id, rank, file);
-	rank = coords[0];
-	file = coords[1];
+    function get_square_coord(player_id, grank, gfile) {
+	var lrank, lfile;
+	[lrank, lfile] = utility.global_to_local_coords(player_id, grank, gfile);
 
 	var x = canvas_size/2, y = canvas_size - square_size;
-	x -= rank * square_size; y -= rank * square_size;
-	x += file * square_size; y -= file * square_size;
+	x -= lrank * square_size; y -= lrank * square_size;
+	x += lfile * square_size; y -= lfile * square_size;
 	return [x, y];
     }
 
-    function get_square_color(rank, file) {
+    function get_square_color(grank, gfile) {
 	var color;
-	if (rank % 2 == 0)
-	    color = (file % 2 == 0 ? light_col : dark_col);
+	if (grank % 2 == 0)
+	    color = (gfile % 2 == 0 ? light_col : dark_col);
 	else
-	    color = (file % 2 == 0 ? dark_col : light_col);
+	    color = (gfile % 2 == 0 ? dark_col : light_col);
 	return color;
     }
 
-    function draw_square(player_id, rank, file, color) {
-	var coords = get_square_coord(player_id, rank, file);
+    function draw_square(player_id, grank, gfile, color) {
+	var coords = get_square_coord(player_id, grank, gfile);
 	var x = coords[0], y = coords[1];
 
 	ctx.fillStyle = color;
@@ -278,8 +219,8 @@ $(document).ready(() => {
 	ctx.fill();
     }
 
-    function draw_move_indicator(player_id, rank, file) {
-	var coords = get_square_coord(player_id, rank, file);
+    function draw_move_indicator(player_id, grank, gfile) {
+	var coords = get_square_coord(player_id, grank, gfile);
 	var x = coords[0], y = coords[1];
 
 	ctx.fillStyle = move_indicator_col;
@@ -288,9 +229,9 @@ $(document).ready(() => {
 	ctx.fill();
     }
 
-    function draw_piece(player_id, rank, file, piece) {
+    function draw_piece(player_id, grank, gfile, piece) {
 	var offset_x = -30, offset_y = -34; // found manually, to make piece positioning look good
-	var coords = get_square_coord(player_id, rank, file);
+	var coords = get_square_coord(player_id, grank, gfile);
 
 	if (piece != '')
 	    ctx.drawImage(piece_images[piece],
@@ -299,27 +240,27 @@ $(document).ready(() => {
     }
 
     function draw_board(player_id, board) {
-	for (var rank = 0; rank <= 7; rank++) {
-	    for (var file = 0; file <= 7; file++) {
-		var piece = board[rank][file];
-		draw_square(player_id, rank, file, get_square_color(rank, file));
-		draw_piece(player_id, rank, file, piece);
+	for (var grank = 0; grank <= 7; grank++) {
+	    for (var gfile = 0; gfile <= 7; gfile++) {
+		var piece = board[grank][gfile];
+		draw_square(player_id, grank, gfile, get_square_color(grank, gfile));
+		draw_piece(player_id, grank, gfile, piece);
 	    }
 	}
     }
 
-    function highlight_square(player_id, rank, file) {
-	draw_square(player_id, rank, file, highlight_col);
-	var piece = board[rank][file];
+    function highlight_square(player_id, grank, gfile) {
+	draw_square(player_id, grank, gfile, highlight_col);
+	var piece = board[grank][gfile];
 	if (piece != '')
-	    draw_piece(player_id, rank, file, piece);
+	    draw_piece(player_id, grank, gfile, piece);
     }
 
-    function unhighlight_square(player_id, rank, file) {
-	draw_square(player_id, rank, file, get_square_color(rank, file));
-	var piece = board[rank][file];
+    function unhighlight_square(player_id, grank, gfile) {
+	draw_square(player_id, grank, gfile, get_square_color(grank, gfile));
+	var piece = board[grank][gfile];
 	if (piece != '')
-	    draw_piece(player_id, rank, file, piece);
+	    draw_piece(player_id, grank, gfile, piece);
     }
 
     function load_piece_image(piece) {
