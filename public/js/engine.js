@@ -1,11 +1,11 @@
-const utility = require('./utility')
+const utility = require('./utility');
+const pieces = require('./pieces');
 
 /*
   Return array of [rank, file], where the piece at (rank, file) can
   be moved by player
 */
 module.exports.movable_pieces = (player_id, board) => {
-    var color = player_id % 2;
     var squares = [];
 
     /*
@@ -19,12 +19,12 @@ module.exports.movable_pieces = (player_id, board) => {
 	    var piece = board[grank][gfile];
 
 	    // square is empty
-	    if (piece == '')
+	    if (pieces.is_empty(piece))
 		continue;
 
 	    // piece is of the wrong color
-	    if ((color == 0 && piece.charAt(0) == 'b') ||
-		(color == 1 && piece.charAt(0) == 'w'))
+	    if ((pieces.is_player_white(player_id) && !pieces.is_white(piece)) ||
+	        (!pieces.is_player_white(player_id) && pieces.is_white(piece)))
 		continue;
 
 	    squares.push([grank, gfile]);
@@ -40,8 +40,8 @@ module.exports.movable_pieces = (player_id, board) => {
   1 <= i <= max_length
 */
 module.exports.ray_moves = (board, grank, gfile, d_grank, d_gfile, max_length) => {
-    var piece = board[grank][gfile];
-    var color = piece.charAt(0);
+    var old_piece = board[grank][gfile];
+    var color = pieces.get_color(old_piece);
     var new_square;
     var moves = [];
 
@@ -51,16 +51,16 @@ module.exports.ray_moves = (board, grank, gfile, d_grank, d_gfile, max_length) =
 	    break;
 
 	var new_piece = board[new_grank][new_gfile];
-	if (new_piece == '') {
+	if (pieces.is_empty(new_piece)) {
 	    // empty square
 	    moves.push([grank, gfile, new_grank, new_gfile]);
 	    continue;
 	}
-	else if (piece.charAt(0) == new_piece.charAt(0)) {
+	else if (pieces.same_colors(old_piece, new_piece)) {
 	    // blocked by same color piece
 	    break;
 	}
-	else if (piece.charAt(0) != new_piece.charAt(0)) {
+	else {
 	    moves.push([grank, gfile, new_grank, new_gfile]);
 	    break;
 	}
@@ -95,11 +95,11 @@ module.exports.legal_moves = (player_id, board) => {
     module.exports.movable_pieces(player_id, board).forEach((coords) => {
 	var grank = coords[0], gfile = coords[1];
 	var piece = board[grank][gfile];
-	var color = piece.charAt(0), type = piece.charAt(1);
+	var type = pieces.get_type(piece);
 
 	if (type == 'p') {
 	    // Normal moves
-	    var normal_moves = (color == 'w' ? [[1,1],[-1,-1]] : [[1,-1],[-1,1]]);
+	    var normal_moves = (pieces.is_white(piece) ? [[1,1],[-1,-1]] : [[1,-1],[-1,1]]);
 	    normal_moves.forEach((d) => {
 		var d_grank = d[0], d_gfile = d[1];
 		if (grank+d_grank < 0 || grank+d_grank >= 8 ||
@@ -108,7 +108,7 @@ module.exports.legal_moves = (player_id, board) => {
 		}
 
 		var other_piece = board[grank+d_grank][gfile+d_gfile];
-		if (other_piece == '')
+		if (pieces.is_empty(other_piece))
 		    moves.push([grank, gfile, grank+d_grank, gfile+d_gfile]);
 	    });
 
@@ -121,7 +121,7 @@ module.exports.legal_moves = (player_id, board) => {
 		}
 
 		var other_piece = board[grank+d_grank][gfile+d_gfile];
-		if (other_piece != '' && color != other_piece.charAt(0))
+		if (!pieces.is_empty(other_piece) && !pieces.same_colors(piece, other_piece))
 		    moves.push([grank, gfile, grank+d_grank, gfile+d_gfile]);
 	    });
 	}
@@ -169,9 +169,8 @@ module.exports.legal_moves = (player_id, board) => {
 }
 
 module.exports.lost_yet = (board, color) => {
-    // 0 = white, 1 = black
-    if (color == 0)
+    if (color == pieces.WHITE)
 	return !board.flat().includes('wk');
-    else if (color == 1)
+    else if (color == pieces.BLACK)
 	return !board.flat().includes('bk');
 }

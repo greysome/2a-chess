@@ -6,6 +6,7 @@ $(document).ready(() => {
     // Game state
     var player_id; // -1 if spectator
     var is_my_turn = false;
+    var movable_pieces = [];
     var legal_moves = [];
     var board;
 
@@ -88,16 +89,18 @@ $(document).ready(() => {
 	$('#txt_spectators').text(num_spectators.toString() + ' spectators');
     });
 
-    socket.on('broadcast player turn', (_player_id, username, _legal_moves) => {
+    socket.on('broadcast player turn', (_player_id, username, _movable_pieces, _legal_moves) => {
 	/* start game, either spectate or play */
 	if (player_id == _player_id) {
 	    $('#txt_gamestate').text('Your turn');
 	    is_my_turn = true;
+	    movable_pieces = _movable_pieces;
 	    legal_moves = _legal_moves;
 	}
 	else {
 	    $('#txt_gamestate').text(username + '\'s turn');
 	    is_my_turn = false;
+	    movable_pieces = [];
 	    legal_moves = [];
 	}
     });
@@ -150,25 +153,28 @@ $(document).ready(() => {
 	var grank, gfile;
 	[grank, gfile] = utility.local_to_global_coords(player_id, local_coords[0], local_coords[1]);
 
+	// clicked outside of board
 	if (grank < 0 || grank >= 8 || gfile < 0 || gfile >= 8)
-	    return; // clicked outside of board
+	    return;
 
-	if (render.cur_highlight_square == null && board[grank][gfile] == '')
-	    return; // no piece to highlight
-
-	if (render.cur_highlight_square == null)
+	// highlight a piece which can be moved
+	if (utility.array_includes(movable_pieces, [grank, gfile])) {
+	    render.draw_board(ctx, player_id, board); // clear all existing highlights
+	    render.cur_highlighting = true;
+	    render.cur_highlight_square = [grank, gfile];
 	    render.draw_legal_moves(ctx, player_id, board, grank, gfile, legal_moves);
-	else {
-	    var old_grank = render.cur_highlight_square[0], old_gfile = render.cur_highlight_square[1];
-	    if (grank == old_grank && gfile == old_gfile) {
-		// clear all highlights and legal move indicators
-		render.draw_board(ctx, player_id, board);
-		render.cur_highlight_square = null;
-	    }
-	    else if (utility.array_includes(legal_moves, [old_grank, old_gfile, grank, gfile])) {
+	}
+
+	// highlighted piece's destination square has been selected
+	if (render.cur_highlighting) {
+	    var old_grank = render.cur_highlight_square[0],
+		old_gfile = render.cur_highlight_square[1];
+	    console.log(room_id, player_id, old_grank, old_gfile, grank, gfile);
+	    if (utility.array_includes(legal_moves, [old_grank, old_gfile, grank, gfile])) {
 		socket.emit('player move', room_id, player_id, old_grank, old_gfile, grank, gfile);
-		render.draw_board(ctx, player_id, board);
+		render.cur_highlighting = false;
 		render.cur_highlight_square = null;
+		render.draw_board(ctx, player_id, board); // clear all existing highlights
 	    }
 	}
     });

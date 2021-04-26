@@ -6,6 +6,7 @@ const io = require('socket.io')(server);
 const path = require('path');
 const utility = require('./public/js/utility');
 const engine = require('./public/js/engine');
+const pieces = require('./public/js/pieces');
 
 var games = Object(); // {game id: state}
 var start_board = [
@@ -90,6 +91,7 @@ function start_game(io, room_id) {
     io.to(room_id).emit('broadcast player turn',
 			game.cur_player,
 			game.usernames[game.cur_player],
+			engine.movable_pieces(game.cur_player, game.board),
 			engine.legal_moves(game.cur_player, game.board));
 }
 
@@ -134,6 +136,7 @@ io.on('connection', (socket) => {
 	    socket.emit('broadcast player turn',
 			game.cur_player,
 			game.usernames[game.cur_player],
+			engine.movable_pieces(game.cur_player, game.board),
 			engine.legal_moves(game.cur_player, game.board));
 	}
 	else {
@@ -158,12 +161,12 @@ io.on('connection', (socket) => {
 	io.to(room_id).emit('broadcast player move', game.board);
 
 	// check win condition
-	if (engine.lost_yet(game.board, 0)) {
+	if (engine.lost_yet(game.board, pieces.WHITE)) {
 	    io.to(room_id).emit('broadcast black win');
 	    delete games[room_id];
 	    return;
 	}
-	else if (engine.lost_yet(game.board, 1)) {
+	else if (engine.lost_yet(game.board, pieces.BLACK)) {
 	    io.to(room_id).emit('broadcast white win');
 	    delete games[room_id];
 	    return;
@@ -176,11 +179,12 @@ io.on('connection', (socket) => {
 	    // find the next player who is not in stalemate
 	    var moves = engine.legal_moves(next_player, game.board);
 	    if (moves.length != 0) {
+		games[room_id].cur_player = next_player;
 		io.to(room_id).emit('broadcast player turn',
 				    next_player,
 				    game.usernames[next_player],
+				    engine.movable_pieces(next_player, game.board),
 				    moves);
-		games[room_id].cur_player = next_player;
 
 		if (!game.connection_states[next_player])
 		    wait_for_disconnected_player(room_id, next_player, 30);
