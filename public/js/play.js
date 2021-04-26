@@ -2,7 +2,6 @@ $(document).ready(() => {
     // Rendering
     var canvas = document.getElementById('canvas'),
 	ctx = canvas.getContext('2d');
-    var cur_highlight_square = null;
 
     // Game state
     var player_id; // -1 if spectator
@@ -128,10 +127,7 @@ $(document).ready(() => {
 	legal_moves = [];
     });
 
-    canvas.addEventListener('click', event => {
-	if (!is_my_turn)
-	    return;
-
+    function get_click_local_coords(event) {
 	var rect = canvas.getBoundingClientRect();
 	var x = event.clientX - rect.left;
 	var y = event.clientY - rect.top;
@@ -143,38 +139,36 @@ $(document).ready(() => {
 	// project onto vectors representing movement by one file/rank
 	var lrank = Math.round(utility.component(displacement, [-render.square_size, -render.square_size]));
 	var lfile = Math.round(utility.component(displacement, [render.square_size, -render.square_size]));
+	return [lrank, lfile];
+    }
 
+    canvas.addEventListener('click', (event) => {
+	if (!is_my_turn)
+	    return;
+
+	var local_coords = get_click_local_coords(event);
 	var grank, gfile;
-	[grank, gfile] = utility.local_to_global_coords(player_id, lrank, lfile);
+	[grank, gfile] = utility.local_to_global_coords(player_id, local_coords[0], local_coords[1]);
 
 	if (grank < 0 || grank >= 8 || gfile < 0 || gfile >= 8)
 	    return; // clicked outside of board
 
-	if (cur_highlight_square == null && board[grank][gfile] == '')
+	if (render.cur_highlight_square == null && board[grank][gfile] == '')
 	    return; // no piece to highlight
 
-	if (cur_highlight_square == null) {
-	    render.highlight_square(ctx, player_id, board, grank, gfile);
-	    cur_highlight_square = [grank, gfile];
-
-	    legal_moves.forEach((move) => {
-		var old_grank, old_gfile, new_grank, new_gfile;
-		[old_grank, old_gfile, new_grank, new_gfile] = move;
-		if (grank == old_grank && gfile == old_gfile)
-		    render.draw_move_indicator(ctx, player_id, new_grank, new_gfile);
-	    });
-	}
+	if (render.cur_highlight_square == null)
+	    render.draw_legal_moves(ctx, player_id, board, grank, gfile, legal_moves);
 	else {
-	    var old_grank = cur_highlight_square[0], old_gfile = cur_highlight_square[1];
+	    var old_grank = render.cur_highlight_square[0], old_gfile = render.cur_highlight_square[1];
 	    if (grank == old_grank && gfile == old_gfile) {
 		// clear all highlights and legal move indicators
 		render.draw_board(ctx, player_id, board);
-		cur_highlight_square = null;
+		render.cur_highlight_square = null;
 	    }
 	    else if (utility.array_includes(legal_moves, [old_grank, old_gfile, grank, gfile])) {
 		socket.emit('player move', room_id, player_id, old_grank, old_gfile, grank, gfile);
 		render.draw_board(ctx, player_id, board);
-		cur_highlight_square = null;
+		render.cur_highlight_square = null;
 	    }
 	}
     });

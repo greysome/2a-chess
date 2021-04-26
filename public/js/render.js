@@ -8,6 +8,7 @@
     exports.move_indicator_col = '#41b075';
 
     exports.piece_images = new Object(); // to be loaded dynamically
+    exports.cur_highlight_square = null;
 
     exports.get_square_coord = (player_id, grank, gfile) => {
 	var lrank, lfile;
@@ -78,6 +79,18 @@
 	var piece = board[grank][gfile];
 	if (piece != '')
 	    exports.draw_piece(ctx, player_id, grank, gfile, piece);
+    };
+
+    exports.draw_legal_moves = (ctx, player_id, board, grank, gfile, legal_moves) => {
+	exports.highlight_square(ctx, player_id, board, grank, gfile);
+	exports.cur_highlight_square = [grank, gfile];
+
+	legal_moves.forEach((move) => {
+	    var old_grank, old_gfile, new_grank, new_gfile;
+	    [old_grank, old_gfile, new_grank, new_gfile] = move;
+	    if (grank == old_grank && gfile == old_gfile)
+		exports.draw_move_indicator(ctx, player_id, new_grank, new_gfile);
+	});
     };
 
     exports.load_piece_image = (piece) => {
