@@ -1,16 +1,10 @@
 $(document).ready(() => {
     // Rendering
     var canvas = document.getElementById('canvas'),
-	ctx = canvas.getContext("2d");
-    var canvas_size = 900;
-    var square_size = canvas_size/16;
-
-    var light_col = '#F0D9B5', dark_col = '#BF804D',
-	highlight_col = '#DDDDDD', move_indicator_col = '#41b075';
+	ctx = canvas.getContext('2d');
     var cur_highlight_square = null;
 
     // Game state
-    var piece_images = new Object(); // to be loaded dynamically
     var player_id; // -1 if spectator
     var is_my_turn = false;
     var legal_moves = [];
@@ -72,7 +66,7 @@ $(document).ready(() => {
 	player_id = -1;
 	board = _board;
 	$('#txt_player').text('You are spectating');
-	load_piece_images(() => { draw_board(player_id, board); });
+	render.load_piece_images(() => { render.draw_board(ctx, player_id, board); });
     });
 
     socket.on('joined room player', (_player_id, _username, _board) => {
@@ -82,7 +76,7 @@ $(document).ready(() => {
 
 	$('#txt_room_id').text('Room ID: ' + room_id);
 	$('#txt_player').text('You are ' + username + ' with id ' + player_id);
-	load_piece_images(() => { draw_board(player_id, board); });
+	render.load_piece_images(() => { render.draw_board(ctx, player_id, board); });
 
 	// incredibly lazy way to save cookies
 	// allows player to rejoin room after disconnecting
@@ -111,7 +105,7 @@ $(document).ready(() => {
 
     socket.on('broadcast player move', (new_board) => {
 	board = new_board;
-	draw_board(player_id, new_board);
+	render.draw_board(ctx, player_id, new_board);
     });
 
     socket.on('broadcast wait for disconnected player', (username, secs_left) => {
@@ -143,12 +137,12 @@ $(document).ready(() => {
 	var y = event.clientY - rect.top;
 
 	// get displacement from bottom square
-	var coords = get_square_coord(0, 0, 0);
+	var coords = render.get_square_coord(0, 0, 0);
 	var displacement = [x - coords[0], y - coords[1]];
 
 	// project onto vectors representing movement by one file/rank
-	var lrank = Math.round(utility.component(displacement, [-square_size, -square_size]));
-	var lfile = Math.round(utility.component(displacement, [square_size, -square_size]));
+	var lrank = Math.round(utility.component(displacement, [-render.square_size, -render.square_size]));
+	var lfile = Math.round(utility.component(displacement, [render.square_size, -render.square_size]));
 
 	var grank, gfile;
 	[grank, gfile] = utility.local_to_global_coords(player_id, lrank, lfile);
@@ -160,128 +154,28 @@ $(document).ready(() => {
 	    return; // no piece to highlight
 
 	if (cur_highlight_square == null) {
-	    highlight_square(player_id, grank, gfile);
+	    render.highlight_square(ctx, player_id, board, grank, gfile);
 	    cur_highlight_square = [grank, gfile];
 
 	    legal_moves.forEach((move) => {
 		var old_grank, old_gfile, new_grank, new_gfile;
 		[old_grank, old_gfile, new_grank, new_gfile] = move;
 		if (grank == old_grank && gfile == old_gfile)
-		    draw_move_indicator(player_id, new_grank, new_gfile);
+		    render.draw_move_indicator(ctx, player_id, new_grank, new_gfile);
 	    });
 	}
 	else {
 	    var old_grank = cur_highlight_square[0], old_gfile = cur_highlight_square[1];
 	    if (grank == old_grank && gfile == old_gfile) {
 		// clear all highlights and legal move indicators
-		draw_board(player_id, board);
+		render.draw_board(ctx, player_id, board);
 		cur_highlight_square = null;
 	    }
 	    else if (utility.array_includes(legal_moves, [old_grank, old_gfile, grank, gfile])) {
 		socket.emit('player move', room_id, player_id, old_grank, old_gfile, grank, gfile);
-		draw_board(player_id, board);
+		render.draw_board(ctx, player_id, board);
 		cur_highlight_square = null;
 	    }
 	}
     });
-
-    function get_square_coord(player_id, grank, gfile) {
-	var lrank, lfile;
-	[lrank, lfile] = utility.global_to_local_coords(player_id, grank, gfile);
-
-	var x = canvas_size/2, y = canvas_size - square_size;
-	x -= lrank * square_size; y -= lrank * square_size;
-	x += lfile * square_size; y -= lfile * square_size;
-	return [x, y];
-    }
-
-    function get_square_color(grank, gfile) {
-	var color;
-	if (grank % 2 == 0)
-	    color = (gfile % 2 == 0 ? light_col : dark_col);
-	else
-	    color = (gfile % 2 == 0 ? dark_col : light_col);
-	return color;
-    }
-
-    function draw_square(player_id, grank, gfile, color) {
-	var coords = get_square_coord(player_id, grank, gfile);
-	var x = coords[0], y = coords[1];
-
-	ctx.fillStyle = color;
-	ctx.beginPath();
-	ctx.moveTo(x-square_size, y);
-	ctx.lineTo(x, y-square_size);
-	ctx.lineTo(x+square_size, y);
-	ctx.lineTo(x, y+square_size);
-	ctx.lineTo(x-square_size, y);
-	ctx.closePath();
-	ctx.fill();
-    }
-
-    function draw_move_indicator(player_id, grank, gfile) {
-	var coords = get_square_coord(player_id, grank, gfile);
-	var x = coords[0], y = coords[1];
-
-	ctx.fillStyle = move_indicator_col;
-	ctx.beginPath();
-	ctx.arc(x, y, 10, 0, 2 * Math.PI);
-	ctx.fill();
-    }
-
-    function draw_piece(player_id, grank, gfile, piece) {
-	var offset_x = -30, offset_y = -34; // found manually, to make piece positioning look good
-	var coords = get_square_coord(player_id, grank, gfile);
-
-	if (piece != '')
-	    ctx.drawImage(piece_images[piece],
-			coords[0]+offset_x, coords[1]+offset_y,
-			1.1*square_size, 1.1*square_size);
-    }
-
-    function draw_board(player_id, board) {
-	for (var grank = 0; grank <= 7; grank++) {
-	    for (var gfile = 0; gfile <= 7; gfile++) {
-		var piece = board[grank][gfile];
-		draw_square(player_id, grank, gfile, get_square_color(grank, gfile));
-		draw_piece(player_id, grank, gfile, piece);
-	    }
-	}
-    }
-
-    function highlight_square(player_id, grank, gfile) {
-	draw_square(player_id, grank, gfile, highlight_col);
-	var piece = board[grank][gfile];
-	if (piece != '')
-	    draw_piece(player_id, grank, gfile, piece);
-    }
-
-    function unhighlight_square(player_id, grank, gfile) {
-	draw_square(player_id, grank, gfile, get_square_color(grank, gfile));
-	var piece = board[grank][gfile];
-	if (piece != '')
-	    draw_piece(player_id, grank, gfile, piece);
-    }
-
-    function load_piece_image(piece) {
-	return new Promise((resolve, reject) => {
-	    var img = new Image();
-	    img.onload = () => resolve([img, piece]);
-	    img.src = '../images/' + piece + '.svg';
-	});
-    }
-
-    function load_piece_images(after) {
-	var pieces = ['wp', 'wr', 'wn', 'wb', 'wq', 'wk',
-		    'bp', 'br', 'bn', 'bb', 'bq', 'bk']
-	Promise.all(pieces.map(load_piece_image)).then(datas => {
-	    // store images
-	    datas.forEach((data, idx) => {
-		var img = data[0], piece = data[1];
-		piece_images[piece] = img;
-	    });
-
-	    after();
-	});
-    }
 });

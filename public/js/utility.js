@@ -85,5 +85,4 @@
 	 */
 	return exports.global_to_local_coords(4-player_id, lrank, lfile);
     }
-
 })(typeof exports === 'undefined' ? this.utility = {} : exports);
